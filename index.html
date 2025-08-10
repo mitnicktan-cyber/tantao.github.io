@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>炉石传说竞技场辅助 - 卡牌衍生池查询</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.3.1/firebase-storage.js"></script>
+    
+    <script>
+        // 配置Tailwind自定义颜色和字体
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        hearthstone: {
+                            primary: '#C89B3C', // 炉石金色
+                            secondary: '#1E2328', // 深色背景
+                            dark: '#121619', // 更深色背景
+                            light: '#F0E6D2', // 浅色文本
+                            accent: '#A8823A', // 强调色
+                        }
+                    },
+                    fontFamily: {
+                        hearthstone: ['Belwe', 'serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .card-hover {
+                @apply transition-all duration-300 hover:shadow-[0_0_15px_rgba(200,155,60,0.5)] hover:-translate-y-1;
+            }
+            .btn-hearth {
+                @apply bg-hearthstone-primary hover:bg-hearthstone-accent text-hearthstone-dark font-bold py-2 px-4 rounded transition-all duration-200;
+            }
+            .text-shadow {
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            }
+            .bg-pattern {
+                background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c89b3c' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            }
+            .loading-spinner {
+                @apply animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-hearthstone-primary mx-auto;
+            }
+        }
+    </style>
+</head>
+<body class="bg-hearthstone-secondary text-hearthstone-light bg-pattern min-h-screen">
+    <!-- 导航栏 -->
+    <nav class="bg-hearthstone-dark shadow-md fixed w-full z-50 transition-all duration-300" id="navbar">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-fire text-hearthstone-primary text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold text-hearthstone-primary">炉石竞技场助手</h1>
+            </div>
+            <div class="hidden md:flex space-x-6 items-center">
+                <a href="#" class="hover:text-hearthstone-primary transition-colors duration-200 active">卡牌衍生池</a>
+                <a href="#" class="hover:text-hearthstone-primary transition-colors duration-200">竞技场攻略</a>
+                <a href="#" class="hover:text-hearthstone-primary transition-colors duration-200">卡组推荐</a>
+                <button id="adminToggle" class="btn-hearth">
+                    <i class="fa fa-lock mr-1"></i> 管理后台
+                </button>
+            </div>
+            <button class="md:hidden text-xl" id="mobileMenuBtn">
+                <i class="fa fa-bars"></i>
+            </button>
+        </div>
+        <!-- 移动端菜单 -->
+        <div class="md:hidden hidden bg-hearthstone-dark w-full" id="mobileMenu">
+            <div class="container mx-auto px-4 py-2 flex flex-col space-y-3">
+                <a href="#" class="py-2 hover:text-hearthstone-primary transition-colors duration-200">卡牌衍生池</a>
+                <a href="#" class="py-2 hover:text-hearthstone-primary transition-colors duration-200">竞技场攻略</a>
+                <a href="#" class="py-2 hover:text-hearthstone-primary transition-colors duration-200">卡组推荐</a>
+                <button id="mobileAdminToggle" class="btn-hearth w-full">
+                    <i class="fa fa-lock mr-1"></i> 管理后台
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <main class="container mx-auto px-4 pt-24 pb-16">
+        <!-- 页面标题 -->
+        <div class="text-center mb-12">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4 text-hearthstone-primary text-shadow">卡牌衍生池查询</h2>
+            <p class="text-gray-300 max-w-2xl mx-auto">查看哈斯石酒、列王遗宝等特殊卡牌的衍生池，帮助你在竞技场中做出更明智的选择</p>
+        </div>
+
+        <!-- 搜索和过滤 -->
+        <div class="mb-10 flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div class="relative w-full md:w-64">
+                <input type="text" id="cardSearch" placeholder="搜索卡牌..." 
+                    class="w-full bg-hearthstone-dark border border-hearthstone-primary rounded py-2 px-4 pl-10 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                <i class="fa fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button class="filter-btn bg-hearthstone-primary text-hearthstone-dark px-4 py-2 rounded text-sm font-medium">全部</button>
+                <button class="filter-btn bg-hearthstone-dark hover:bg-hearthstone-dark/80 px-4 py-2 rounded text-sm font-medium transition-colors">中立</button>
+                <button class="filter-btn bg-hearthstone-dark hover:bg-hearthstone-dark/80 px-4 py-2 rounded text-sm font-medium transition-colors">战士</button>
+                <button class="filter-btn bg-hearthstone-dark hover:bg-hearthstone-dark/80 px-4 py-2 rounded text-sm font-medium transition-colors">法师</button>
+                <button class="filter-btn bg-hearthstone-dark hover:bg-hearthstone-dark/80 px-4 py-2 rounded text-sm font-medium transition-colors">猎人</button>
+            </div>
+        </div>
+
+        <!-- 卡牌展示区 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16" id="cardGrid">
+            <!-- 加载指示器 -->
+            <div id="loadingIndicator" class="col-span-full text-center py-12">
+                <div class="loading-spinner"></div>
+                <p class="mt-4 text-gray-400">加载卡牌中...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- 衍生卡牌模态框 -->
+    <div id="derivativesModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-hearthstone-dark rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto transform transition-transform duration-300 scale-95" id="modalContent">
+            <div class="p-6 border-b border-hearthstone-primary">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-2xl font-bold text-hearthstone-primary" id="modalTitle">哈斯石酒 - 衍生卡牌</h3>
+                    <button id="closeModal" class="text-gray-400 hover:text-white text-xl">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <p class="text-gray-300 mt-2" id="modalDescription">点击以下卡牌可查看详情，这些是哈斯石酒可能衍生出的卡牌。</p>
+            </div>
+            
+            <div class="p-6">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4" id="derivativesGrid">
+                    <!-- 加载指示器 -->
+                    <div id="derivativesLoading" class="col-span-full text-center py-12">
+                        <div class="loading-spinner"></div>
+                        <p class="mt-4 text-gray-400">加载衍生卡牌中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 管理后台模态框 -->
+    <div id="adminModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-hearthstone-dark rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto transform transition-transform duration-300 scale-95" id="adminModalContent">
+            <div class="p-6 border-b border-hearthstone-primary">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-2xl font-bold text-hearthstone-primary">管理后台</h3>
+                    <button id="closeAdminModal" class="text-gray-400 hover:text-white text-xl">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <p class="text-gray-300 mt-2">上传和管理卡牌及其衍生池</p>
+            </div>
+            
+            <div class="p-6">
+                <!-- 管理员登录 -->
+                <div id="adminLogin" class="mb-8">
+                    <h4 class="text-xl font-semibold mb-4 text-hearthstone-primary">管理员登录</h4>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="adminUsername" class="block mb-1">邮箱</label>
+                            <input type="email" id="adminUsername" class="w-full bg-hearthstone-secondary border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                        </div>
+                        <div>
+                            <label for="adminPassword" class="block mb-1">密码</label>
+                            <input type="password" id="adminPassword" class="w-full bg-hearthstone-secondary border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                        </div>
+                        <div class="text-red-500 text-sm hidden" id="loginError"></div>
+                        <button id="loginBtn" class="btn-hearth w-full">
+                            <span id="loginBtnText">登录</span>
+                            <span id="loginBtnSpinner" class="hidden">
+                                <i class="fa fa-spinner fa-spin ml-2"></i>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 管理功能区 (默认隐藏) -->
+                <div id="adminFunctions" class="hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h4 class="text-xl font-semibold text-hearthstone-primary">管理面板</h4>
+                        <button id="logoutBtn" class="text-gray-400 hover:text-white">
+                            <i class="fa fa-sign-out mr-1"></i> 退出登录
+                        </button>
+                    </div>
+                    
+                    <!-- 上传主卡牌 -->
+                    <div class="mb-10 p-5 bg-hearthstone-secondary rounded-lg">
+                        <h4 class="text-xl font-semibold mb-4 text-hearthstone-primary">上传主卡牌</h4>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="cardName" class="block mb-1">卡牌名称</label>
+                                <input type="text" id="cardName" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                            </div>
+                            <div>
+                                <label for="cardClass" class="block mb-1">职业</label>
+                                <select id="cardClass" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                                    <option value="neutral">中立</option>
+                                    <option value="warrior">战士</option>
+                                    <option value="paladin">圣骑士</option>
+                                    <option value="hunter">猎人</option>
+                                    <option value="rogue">潜行者</option>
+                                    <option value="priest">牧师</option>
+                                    <option value="shaman">萨满</option>
+                                    <option value="mage">法师</option>
+                                    <option value="warlock">术士</option>
+                                    <option value="druid">德鲁伊</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="cardDescription" class="block mb-1">卡牌描述</label>
+                                <textarea id="cardDescription" rows="3" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary"></textarea>
+                            </div>
+                            <div>
+                                <label for="cardImage" class="block mb-1">卡牌原画</label>
+                                <input type="file" id="cardImage" accept="image/*" class="w-full text-gray-300">
+                                <div class="mt-2 text-sm text-gray-400">
+                                    推荐尺寸: 800x450像素 (16:9比例)
+                                </div>
+                            </div>
+                            <button id="uploadCardBtn" class="btn-hearth">
+                                <span id="uploadCardBtnText">上传卡牌</span>
+                                <span id="uploadCardBtnSpinner" class="hidden">
+                                    <i class="fa fa-spinner fa-spin ml-2"></i>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 上传衍生卡牌 -->
+                    <div class="mb-10 p-5 bg-hearthstone-secondary rounded-lg">
+                        <h4 class="text-xl font-semibold mb-4 text-hearthstone-primary">上传衍生卡牌</h4>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="parentCard" class="block mb-1">所属主卡牌</label>
+                                <select id="parentCard" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                                    <option value="">-- 加载主卡牌中 --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="derivativeName" class="block mb-1">衍生卡牌名称</label>
+                                <input type="text" id="derivativeName" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                            </div>
+                            <div>
+                                <label for="derivativeCost" class="block mb-1">费用</label>
+                                <input type="number" id="derivativeCost" min="0" max="10" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label for="derivativeAttack" class="block mb-1">攻击力</label>
+                                    <input type="number" id="derivativeAttack" min="0" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                                </div>
+                                <div>
+                                    <label for="derivativeHealth" class="block mb-1">生命值</label>
+                                    <input type="number" id="derivativeHealth" min="0" class="w-full bg-hearthstone-dark border border-gray-700 rounded py-2 px-4 focus:outline-none focus:ring-2 focus:ring-hearthstone-primary">
+                                </div>
+                            </div>
+                            <div>
+                                <label for="derivativeImage" class="block mb-1">衍生卡牌原画</label>
+                                <input type="file" id="derivativeImage" accept="image/*" class="w-full text-gray-300">
+                                <div class="mt-2 text-sm text-gray-400">
+                                    推荐尺寸: 300x400像素 (3:4比例)
+                                </div>
+                            </div>
+                            <button id="uploadDerivativeBtn" class="btn-hearth">
+                                <span id="uploadDerivativeBtnText">上传衍生卡牌</span>
+                                <span id="uploadDerivativeBtnSpinner" class="hidden">
+                                    <i class="fa fa-spinner fa-spin ml-2"></i>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 已上传卡牌管理 -->
+                    <div class="p-5 bg-hearthstone-secondary rounded-lg">
+                        <h4 class="text-xl font-semibold mb-4 text-hearthstone-primary">已上传卡牌管理</h4>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full">
+                                <thead>
+                                    <tr class="border-b border-gray-700">
+                                        <th class="py-3 px-4 text-left">卡牌名称</th>
+                                        <th class="py-3 px-4 text-left">职业</th>
+                                        <th class="py-3 px-4 text-left">衍生卡牌数</th>
+                                        <th class="py-3 px-4 text-left">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cardsManagementTable">
+                                    <tr>
+                                        <td colspan="4" class="py-8 text-center text-gray-400">
+                                            <div class="loading-spinner inline-block"></div>
+                                            <p class="mt-2">加载卡牌数据中...</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="bg-hearthstone-dark py-8 border-t border-hearthstone-primary/30">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa fa-fire text-hearthstone-primary text-xl"></i>
+                        <span class="font-bold text-hearthstone-primary">炉石竞技场助手</span>
+                    </div>
+                    <p class="text-sm text-gray-400 mt-2">帮助炉石玩家更好地了解竞技场卡牌</p>
+                </div>
+                <div class="flex space-x-6">
+                    <a href="#" class="text-gray-400 hover:text-hearthstone-primary transition-colors">
+                        <i class="fa fa-github text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-400 hover:text-hearthstone-primary transition-colors">
+                        <i class="fa fa-twitter text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-400 hover:text-hearthstone-primary transition-colors">
+                        <i class="fa fa-discord text-xl"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="mt-6 text-center text-sm text-gray-500">
+                <p>© 2023 炉石竞技场助手 | 本网站与暴雪娱乐无关</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Firebase 配置 - 请替换为您自己的Firebase项目配置
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // 初始化Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.database();
+        const storage = firebase.storage();
+
+        // 全局变量
+        let currentCardId = null;
+        let allCards = [];
+
+        // DOM元素
+        const cardGrid = document.getElementById('cardGrid');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const derivativesGrid = document.getElementById('derivativesGrid');
+        const derivativesLoading = document.getElementById('derivativesLoading');
+        const parentCardSelect = document.getElementById('parentCard');
+        const cardsManagementTable = document.getElementById('cardsManagementTable');
+
+        // 导航栏滚动效果
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.classList.add('py-2', 'bg-hearthstone-dark/95', 'backdrop-blur-sm');
+                navbar.classList.remove('py-3');
+            } else {
+                navbar.classList.add('py-3');
+                navbar.classList.remove('py-2', 'bg-hearthstone-dark/95', 'backdrop-blur-sm');
+            }
+        });
+
+        // 移动端菜单切换
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenu = document.getElementById('mobileMenu');
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+
+        // 衍生卡牌模态框
+        const derivativesModal = document.getElementById('derivativesModal');
+        const modalContent = document.getElementById('modalContent');
+        const closeModal = document.getElementById('closeModal');
+        const modalTitle = document.getElementById('modalTitle');
+
+        // 打开模态框
+        function openDerivativesModal(cardId, cardName) {
+            currentCardId = cardId;
+            modalTitle.textContent = `${cardName} - 衍生卡牌`;
+            
+            derivativesModal.classList.remove('hidden');
+            // 显示加载状态
+            derivativesGrid.innerHTML = '';
+            derivativesGrid.appendChild(derivativesLoading);
+            derivativesLoading.classList.remove('hidden');
+            
+            // 添加动画效果
+            setTimeout(() => {
+                derivativesModal.classList.add('opacity-100');
+                modalContent.classList.remove('scale-95');
+                modalContent.classList.add('scale-100');
+            }, 10);
+            document.body.style.overflow = 'hidden';
+            
+            // 加载衍生卡牌
+            loadDerivatives(cardId);
+        }
+
+        // 关闭模态框
+        closeModal.addEventListener('click', closeDerivativesModal);
+        
+        derivativesModal.addEventListener('click', (e) => {
+            if (e.target === derivativesModal) {
+                closeDerivativesModal();
+            }
+        });
+
+        function closeDerivativesModal() {
+            derivativesModal.classList.remove('opacity-100');
+            modalContent.classList.remove('scale-100');
+            modalContent.classList.add('scale-95');
+            setTimeout(() => {
+                derivativesModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            }, 300);
+        }
+
+        // 管理后台模态框
+        const adminModal = document.getElementById('adminModal');
+        const adminModalContent = document.getElementById('adminModalContent');
+        const adminToggle = document.getElementById('adminToggle');
+        const mobileAdminToggle = document.getElementById('mobileAdminToggle');
+        const closeAdminModal = document.getElementById('closeAdminModal');
+        const loginBtn = document.getElementById('loginBtn');
+        const adminLogin = document.getElementById('adminLogin');
+        const adminFunctions = document.getElementById('adminFunctions');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const loginError = document.getElementById('loginError');
+
+        // 打开管理后台
+        [adminToggle, mobileAdminToggle].forEach(btn => {
+            btn.addEventListener('click', () => {
+                adminModal.classList.remove('hidden');
+                setTimeout(() => {
+                    adminModal.classList.add('opacity-100');
+                    adminModalContent.classList.remove('scale-95');
+                    adminModalContent.classList.add('scale-100');
+                }, 10);
+                document.body.style.overflow = 'hidden';
+                
+                // 检查用户是否已登录
+                checkUserAuth();
+            });
+        });
+
+        // 关闭管理后台
+        closeAdminModal.addEventListener('click', closeAdminModalFunc);
+        
+        adminModal.addEventListener('click', (e) => {
+            if (e.target === adminModal) {
+                closeAdminModalFunc();
+            }
+        });
+
+        function closeAdminModalFunc() {
+            adminModal.classList.remove('opacity-100');
+            adminModalContent.classList.remove('scale-100');
+            adminModalContent.classList.add('scale-95');
+            setTimeout(() => {
+                adminModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            }, 300);
+        }
+
+        // 管理员登录
+        loginBtn.addEventListener('click', async () => {
+            const email = document.getElementById('adminUsername').value;
+            const password = document.getElementById('adminPassword').value;
+            
+            // 显示加载状态
+            document.getElementById('loginBtnText').classList.add('hidden');
+            document.getElementById('loginBtnSpinner').classList.remove('hidden');
+            loginError.classList.add('hidden');
+            
+            try {
+                // 登录
+                await auth.signInWithEmailAndPassword(email, password);
+                showToast('登录成功，欢迎回来！');
+                
+                // 切换到管理界面
+                adminLogin.classList.add('hidden');
+                adminFunctions.classList.remove('hidden');
+                
+                // 加载主卡牌列表（用于衍生卡牌上传）
+                loadParentCardsForSelect();
+                
+                // 加载管理表格数据
+                loadManagementTableData();
+            } catch (error) {
+                console.error('登录失败:', error);
+                loginError.textContent = '登录失败: ' + error.message;
+                loginError.classList.remove('hidden');
+            } finally {
+                // 隐藏加载状态
+                document.getElementById('loginBtnText').classList.remove('hidden');
+                document.getElementById('loginBtnSpinner').classList.add('hidden');
+            }
+        });
+
+        // 管理员登出
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await auth.signOut();
+                showToast('已成功退出登录');
+                adminFunctions.classList.add('hidden');
+                adminLogin.classList.remove('hidden');
+                document.getElementById('adminUsername').value = '';
+                document.getElementById('adminPassword').value = '';
+            } catch (error) {
+                console.error('登出失败:', error);
+                showToast('登出失败: ' + error.message, 'error');
+            }
+        });
+
+        // 检查用户认证状态
+        function checkUserAuth() {
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    // 用户已登录
+                    adminLogin.classList.add('hidden');
+                    adminFunctions.classList.remove('hidden');
+                    loadParentCardsForSelect();
+                    loadManagementTableData();
+                } else {
+                    // 用户未登录
+                    adminFunctions.classList.add('hidden');
+                    adminLogin.classList.remove('hidden');
+                }
+            });
+        }
+
+        // 上传主卡牌
+        document.getElementById('uploadCardBtn').addEventListener('click', async () => {
+            const cardName = document.getElementById('cardName').value;
+            const cardClass = document.getElementById('cardClass').value;
+            const cardDescription = document.getElementById('cardDescription').value;
+            const cardImage = document.getElementById('cardImage').files[0];
+            
+            // 验证输入
+            if (!cardName || !cardClass || !cardImage) {
+                showToast('请填写所有必填字段并选择图片', 'error');
+                return;
+            }
+            
+            // 显示加载状态
+            document.getElementById('uploadCardBtnText').classList.add('hidden');
+            document.getElementById('uploadCardBtnSpinner').classList.remove('hidden');
+            
+            try {
+                // 1. 上传图片到Storage
+                const imageRef = storage.ref(`cards/${Date.now()}-${cardImage.name}`);
+                const uploadResult = await imageRef.put(cardImage);
+                const imageUrl = await uploadResult.ref.getDownloadURL();
+                
+                // 2. 保存卡牌信息到数据库
+                const newCardRef = db.ref('cards').push();
+                await newCardRef.set({
+                    name: cardName,
+                    class: cardClass,
+                    description: cardDescription,
+                    imageUrl: imageUrl,
+                    createdAt: firebase.database.ServerValue.TIMESTAMP
+                });
+                
+                showToast(`卡牌 "${cardName}" 上传成功！`);
+                
+                // 清空表单
+                document.getElementById('cardName').value = '';
+                document.getElementById('cardDescription').value = '';
+                document.getElementById('cardImage').value = '';
+                
+                // 更新主卡牌列表和管理表格
+                loadCards();
+                loadParentCardsForSelect();
+                loadManagementTableData();
+                
+            } catch (error) {
+                console.error('上传卡牌失败:', error);
+                showToast('上传卡牌失败: ' + error.message, 'error');
+            } finally {
+                // 隐藏加载状态
+                document.getElementById('uploadCardBtnText').classList.remove('hidden');
+                document.getElementById('uploadCardBtnSpinner').classList.add('hidden');
+            }
+        });
+
+        // 上传衍生卡牌
+        document.getElementById('uploadDerivativeBtn').addEventListener('click', async () => {
+            const parentCardId = document.getElementById('parentCard').value;
+            const derivativeName = document.getElementById('derivativeName').value;
+            const derivativeCost = document.getElementById('derivativeCost').value;
+            const derivativeAttack = document.getElementById('derivativeAttack').value;
+            const derivativeHealth = document.getElementById('derivativeHealth').value;
+            const derivativeImage = document.getElementById('derivativeImage').files[0];
+            
+            // 验证输入
+            if (!parentCardId || !derivativeName || !derivativeCost || 
+                !derivativeAttack || !derivativeHealth || !derivativeImage) {
+                showToast('请填写所有必填字段并选择图片', 'error');
+                return;
+            }
+            
+            // 显示加载状态
+            document.getElementById('uploadDerivativeBtnText').classList.add('hidden');
+            document.getElementById('uploadDerivativeBtnSpinner').classList.remove('hidden');
+            
+            try {
+                // 1. 上传图片到Storage
+                const imageRef = storage.ref(`derivatives/${Date.now()}-${derivativeImage.name}`);
+                const uploadResult = await imageRef.put(derivativeImage);
+                const imageUrl = await uploadResult.ref.getDownloadURL();
+                
+                // 2. 保存衍生卡牌信息到数据库
+                const parentCardName = parentCardSelect.options[parentCardSelect.selectedIndex].text;
+                const newDerivativeRef = db.ref(`derivatives/${parentCardId}`).push();
+                await newDerivativeRef.set({
+                    name: derivativeName,
+                    cost: parseInt(derivativeCost),
+                    attack: parseInt(derivativeAttack),
+                    health: parseInt(derivativeHealth),
+                    imageUrl: imageUrl,
+                    parentCardId: parentCardId,
+                    parentCardName: parentCardName,
+                    createdAt: firebase.database.ServerValue.TIMESTAMP
+                });
+                
+                showToast(`衍生卡牌 "${derivativeName}" 上传成功！`);
+                
+                // 清空表单
+                document.getElementById('derivativeName').value = '';
+                document.getElementById('derivativeCost').value = '';
+                document.getElementById('derivativeAttack').value = '';
+                document.getElementById('derivativeHealth').value = '';
+                document.getElementById('derivativeImage').value = '';
+                
+                // 如果当前打开的是该主卡牌的衍生池，刷新显示
+                if (currentCardId === parentCardId) {
+                    loadDerivatives(parentCardId);
+                }
+                
+                // 更新管理表格
+                loadManagementTableData();
+                
+            } catch (error) {
+                console.error('上传衍生卡牌失败:', error);
+                showToast('上传衍生卡牌失败: ' + error.message, 'error');
+            } finally {
+                // 隐藏加载状态
+                document.getElementById('uploadDerivativeBtnText').classList.remove('hidden');
+                document.getElementById('uploadDerivativeBtnSpinner').classList.add('hidden');
+            }
+        });
+
+        // 搜索功能
+        document.getElementById('cardSearch').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const cards = document.querySelectorAll('#cardGrid > div:not(#loadingIndicator)');
+            
+            cards.forEach(card => {
+                const cardName = card.querySelector('h3').textContent.toLowerCase();
+                if (cardName.includes(searchTerm)) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+
+        // 过滤按钮
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // 更新按钮样式
+                filterBtns.forEach(b => {
+                    b.classList.remove('bg-hearthstone-primary', 'text-hearthstone-dark');
+                    b.classList.add('bg-hearthstone-dark', 'hover:bg-hearthstone-dark/80');
+                });
+                btn.classList.remove('bg-hearthstone-dark', 'hover:bg-hearthstone-dark/80');
+                btn.classList.add('bg-hearthstone-primary', 'text-hearthstone-dark');
+                
+                // 过滤逻辑
+                const filter = btn.textContent;
+                const cards = document.querySelectorAll('#cardGrid > div:not(#loadingIndicator)');
+                
+                cards.forEach(card => {
+                    const cardClass = card.querySelector('.absolute.top-2.right-2').textContent;
+                    if (filter === '全部' || cardClass === filter) {
+                        card.style.display = '';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+        });
+
+        // 加载所有主卡牌
+        function loadCards() {
+            cardGrid.innerHTML = '';
+            cardGrid.appendChild(loadingIndicator);
+            loadingIndicator.classList.remove('hidden');
+            
+            db.ref('cards').once('value', (snapshot) => {
+                const cardsData = snapshot.val();
+                allCards = [];
+                cardGrid.innerHTML = '';
+                
+                if (cardsData) {
+                    // 将对象转换为数组并排序
+                    Object.keys(cardsData).forEach(key => {
+                        allCards.push({
+                            id: key,
+                            ...cardsData[key]
+                        });
+                    });
+                    
+                    // 按创建时间排序（最新的在前）
+                    allCards.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    
+                    // 渲染卡牌
+                    allCards.forEach(card => {
+                        const cardElement = document.createElement('div');
+                        cardElement.className = 'card-hover rounded-lg overflow-hidden bg-hearthstone-dark cursor-pointer relative group';
+                        cardElement.setAttribute('data-card-id', card.id);
+                        cardElement.innerHTML = `
+                            <div class="aspect-[16/9] overflow-hidden">
+                                <img src="${card.imageUrl}" alt="${card.name}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110">
+                            </div>
+                            <div class="absolute bottom-0 left-0 p-2 bg-gradient-to-r from-black/80 to-transparent">
+                                <h3 class="text-lg font-bold text-hearthstone-primary text-shadow">${card.name}</h3>
+                            </div>
+                            <div class="absolute top-2 right-2 bg-hearthstone-primary text-hearthstone-dark text-xs font-bold px-2 py-1 rounded">
+                                ${getClassName(card.class)}
+                            </div>
+                        `;
+                        
+                        // 添加点击事件
+                        cardElement.addEventListener('click', () => {
+                            openDerivativesModal(card.id, card.name);
+                        });
+                        
+                        cardGrid.appendChild(cardElement);
+                    });
+                } else {
+                    // 没有卡牌数据
+                    const emptyMessage = document.createElement('div');
+                    emptyMessage.className = 'col-span-full text-center py-12';
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-info-circle text-4xl text-gray-500 mb-4"></i>
+                        <p class="text-gray-400">暂无卡牌数据，请联系管理员添加</p>
+                    `;
+                    cardGrid.appendChild(emptyMessage);
+                }
+                
+                loadingIndicator.classList.add('hidden');
+            }).catch(error => {
+                console.error('加载卡牌失败:', error);
+                loadingIndicator.classList.add('hidden');
+                
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'col-span-full text-center py-12';
+                errorMessage.innerHTML = `
+                    <i class="fa fa-exclamation-triangle text-4xl text-yellow-500 mb-4"></i>
+                    <p class="text-red-400">加载卡牌失败: ${error.message}</p>
+                `;
+                cardGrid.appendChild(errorMessage);
+            });
+        }
+
+        // 加载衍生卡牌
+        function loadDerivatives(cardId) {
+            db.ref(`derivatives/${cardId}`).once('value', (snapshot) => {
+                const derivativesData = snapshot.val();
+                derivativesGrid.innerHTML = '';
+                
+                if (derivativesData) {
+                    // 渲染衍生卡牌
+                    Object.keys(derivativesData).forEach(key => {
+                        const derivative = derivativesData[key];
+                        const derivativeElement = document.createElement('div');
+                        derivativeElement.className = 'bg-hearthstone-secondary rounded-lg overflow-hidden card-hover relative group';
+                        derivativeElement.setAttribute('data-derivative-id', key);
+                        derivativeElement.innerHTML = `
+                            <div class="aspect-[3/4] overflow-hidden">
+                                <img src="${derivative.imageUrl}" alt="${derivative.name}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110">
+                            </div>
+                            <div class="p-2 text-center">
+                                <h4 class="font-medium">${derivative.name}</h4>
+                                <p class="text-xs text-gray-400">${derivative.cost}费 ${derivative.attack}/${derivative.health}</p>
+                            </div>
+                            ${isUserAdmin() ? `
+                                <button class="delete-derivative absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" 
+                                    data-card-id="${cardId}" data-derivative-id="${key}">
+                                    <i class="fa fa-times text-xs"></i>
+                                </button>
+                            ` : ''}
+                        `;
+                        
+                        derivativesGrid.appendChild(derivativeElement);
+                    });
+                    
+                    // 添加删除衍生卡牌事件
+                    document.querySelectorAll('.delete-derivative').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const cardId = btn.getAttribute('data-card-id');
+                            const derivativeId = btn.getAttribute('data-derivative-id');
+                            deleteDerivative(cardId, derivativeId);
+                        });
+                    });
+                } else {
+                    // 没有衍生卡牌数据
+                    const emptyMessage = document.createElement('div');
+                    emptyMessage.className = 'col-span-full text-center py-12';
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-info-circle text-4xl text-gray-500 mb-4"></i>
+                        <p class="text-gray-400">暂无衍生卡牌数据</p>
+                    `;
+                    derivativesGrid.appendChild(emptyMessage);
+                }
+                
+                derivativesLoading.classList.add('hidden');
+            }).catch(error => {
+                console.error('加载衍生卡牌失败:', error);
+                derivativesLoading.classList.add('hidden');
+                
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'col-span-full text-center py-12';
+                errorMessage.innerHTML = `
+                    <i class="fa fa-exclamation-triangle text-4xl text-yellow-500 mb-4"></i>
+                    <p class="text-red-400">加载衍生卡牌失败: ${error.message}</p>
+                `;
+                derivativesGrid.appendChild(errorMessage);
+            });
+        }
+
+        // 加载主卡牌到下拉选择框
+        function loadParentCardsForSelect() {
+            parentCardSelect.innerHTML = '<option value="">-- 加载主卡牌中 --</option>';
+            
+            db.ref('cards').once('value', (snapshot) => {
+                const cardsData = snapshot.val();
+                parentCardSelect.innerHTML = '<option value="">-- 选择主卡牌 --</option>';
+                
+                if (cardsData) {
+                    Object.keys(cardsData).forEach(key => {
+                        const card = cardsData[key];
+                        const option = document.createElement('option');
+                        option.value = key;
+                        option.textContent = card.name;
+                        parentCardSelect.appendChild(option);
+                    });
+                }
+            }).catch(error => {
+                console.error('加载主卡牌失败:', error);
+                parentCardSelect.innerHTML = '<option value="">-- 加载失败，请刷新 --</option>';
+            });
+        }
+
+        // 加载管理表格数据
+        function loadManagementTableData() {
+            cardsManagementTable.innerHTML = `
+                <tr>
+                    <td colspan="4" class="py-8 text-center text-gray-400">
+                        <div class="loading-spinner inline-block"></div>
+                        <p class="mt-2">加载卡牌数据中...</p>
+                    </td>
+                </tr>
+            `;
+            
+            // 先获取所有主卡牌
+            db.ref('cards').once('value', async (cardsSnapshot) => {
+                const cardsData = cardsSnapshot.val();
+                cardsManagementTable.innerHTML = '';
+                
+                if (cardsData) {
+                    // 遍历每个主卡牌，获取衍生卡牌数量
+                    for (const [cardId, card] of Object.entries(cardsData)) {
+                        // 获取衍生卡牌数量
+                        const derivativesSnapshot = await db.ref(`derivatives/${cardId}`).once('value');
+                        const derivativesCount = derivativesSnapshot.exists() ? 
+                            Object.keys(derivativesSnapshot.val()).length : 0;
+                        
+                        // 创建表格行
+                        const row = document.createElement('tr');
+                        row.className = 'border-b border-gray-800';
+                        row.innerHTML = `
+                            <td class="py-3 px-4">${card.name}</td>
+                            <td class="py-3 px-4">${getClassName(card.class)}</td>
+                            <td class="py-3 px-4">${derivativesCount}</td>
+                            <td class="py-3 px-4">
+                                <button class="edit-card text-blue-400 hover:text-blue-300 mr-3" data-card-id="${cardId}">
+                                    <i class="fa fa-pencil"></i> 编辑
+                                </button>
+                                <button class="delete-card text-red-400 hover:text-red-300" data-card-id="${cardId}" data-card-name="${card.name}">
+                                    <i class="fa fa-trash"></i> 删除
+                                </button>
+                            </td>
+                        `;
+                        
+                        cardsManagementTable.appendChild(row);
+                    }
+                    
+                    // 添加编辑和删除事件
+                    document.querySelectorAll('.delete-card').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const cardId = btn.getAttribute('data-card-id');
+                            const cardName = btn.getAttribute('data-card-name');
+                            deleteCard(cardId, cardName);
+                        });
+                    });
+                    
+                    document.querySelectorAll('.edit-card').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const cardId = btn.getAttribute('data-card-id');
+                            // 这里可以实现编辑功能
+                            showToast('编辑功能即将上线', 'success');
+                        });
+                    });
+                } else {
+                    // 没有卡牌数据
+                    cardsManagementTable.innerHTML = `
+                        <tr>
+                            <td colspan="4" class="py-8 text-center text-gray-400">
+                                暂无卡牌数据，请先上传卡牌
+                            </td>
+                        </tr>
+                    `;
+                }
+            }).catch(error => {
+                console.error('加载管理表格数据失败:', error);
+                cardsManagementTable.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="py-8 text-center text-red-400">
+                            加载失败: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // 删除衍生卡牌
+        async function deleteDerivative(cardId, derivativeId) {
+            if (!confirm('确定要删除这个衍生卡牌吗？此操作不可撤销。')) {
+                return;
+            }
+            
+            try {
+                // 1. 获取衍生卡牌数据（包括图片URL）
+                const derivativeRef = db.ref(`derivatives/${cardId}/${derivativeId}`);
+                const snapshot = await derivativeRef.once('value');
+                const derivative = snapshot.val();
+                
+                // 2. 删除数据库中的记录
+                await derivativeRef.remove();
+                
+                // 3. 删除Storage中的图片
+                if (derivative && derivative.imageUrl) {
+                    const imageRef = storage.refFromURL(derivative.imageUrl);
+                    await imageRef.delete();
+                }
+                
+                showToast('衍生卡牌已成功删除');
+                
+                // 刷新衍生卡牌列表
+                loadDerivatives(cardId);
+                
+                // 更新管理表格
+                loadManagementTableData();
+                
+            } catch (error) {
+                console.error('删除衍生卡牌失败:', error);
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 删除主卡牌
+        async function deleteCard(cardId, cardName) {
+            if (!confirm(`确定要删除卡牌"${cardName}"及其所有衍生卡牌吗？此操作不可撤销。`)) {
+                return;
+            }
+            
+            try {
+                // 1. 获取主卡牌数据（包括图片URL）
+                const cardRef = db.ref(`cards/${cardId}`);
+                const cardSnapshot = await cardRef.once('value');
+                const card = cardSnapshot.val();
+                
+                // 2. 获取所有衍生卡牌
+                const derivativesRef = db.ref(`derivatives/${cardId}`);
+                const derivativesSnapshot = await derivativesRef.once('value');
+                const derivatives = derivativesSnapshot.val();
+                
+                // 3. 删除所有衍生卡牌图片
+                if (derivatives) {
+                    for (const derivative of Object.values(derivatives)) {
+                        if (derivative.imageUrl) {
+                            const imageRef = storage.refFromURL(derivative.imageUrl);
+                            await imageRef.delete().catch(err => {
+                                console.warn('删除衍生卡牌图片失败:', err);
+                            });
+                        }
+                    }
+                }
+                
+                // 4. 删除主卡牌图片
+                if (card && card.imageUrl) {
+                    const imageRef = storage.refFromURL(card.imageUrl);
+                    await imageRef.delete().catch(err => {
+                        console.warn('删除主卡牌图片失败:', err);
+                    });
+                }
+                
+                // 5. 删除数据库中的记录
+                await cardRef.remove();
+                await derivativesRef.remove();
+                
+                showToast(`卡牌"${cardName}"已成功删除`);
+                
+                // 刷新卡牌列表
+                loadCards();
+                loadParentCardsForSelect();
+                loadManagementTableData();
+                
+                // 如果当前打开的是该卡牌的衍生池，关闭模态框
+                if (currentCardId === cardId) {
+                    closeDerivativesModal();
+                }
+                
+            } catch (error) {
+                console.error('删除卡牌失败:', error);
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 检查用户是否为管理员
+        function isUserAdmin() {
+            return !!auth.currentUser;
+        }
+
+        // 将职业代码转换为显示名称
+        function getClassName(classCode) {
+            const classMap = {
+                'neutral': '中立',
+                'warrior': '战士',
+                'paladin': '圣骑士',
+                'hunter': '猎人',
+                'rogue': '潜行者',
+                'priest': '牧师',
+                'shaman': '萨满',
+                'mage': '法师',
+                'warlock': '术士',
+                'druid': '德鲁伊'
+            };
+            return classMap[classCode] || classCode;
+        }
+
+        // 提示消息功能
+        function showToast(message, type = 'success') {
+            // 创建toast元素
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg transition-all duration-300 transform translate-y-10 opacity-0 z-50 ${
+                type === 'success' ? 'bg-green-600' : 'bg-red-600'
+            }`;
+            toast.innerHTML = `
+                <i class="fa ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>
+                ${message}
+            `;
+            
+            // 添加到页面
+            document.body.appendChild(toast);
+            
+            // 显示动画
+            setTimeout(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+                toast.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+            
+            // 3秒后隐藏
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            // 加载卡牌数据
+            loadCards();
+            
+            // 检查认证状态（用于管理后台）
+            checkUserAuth();
+        });
+    </script>
+</body>
+</html>
+    
